@@ -1,0 +1,9 @@
+*.melarecipes
+__pycache__/
+*.pyc
+.env
+node_modules/
+package-lock.json
+index.js
+package.json
+.claude/
