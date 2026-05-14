@@ -70,7 +70,7 @@ Open this file in Mela to import your recipes.
 ## Importing into Mela
 
 - **Mac**: Double-click `recipes.melarecipes` — Mela will prompt you to import
-- **iPhone / iPad**: AirDrop or save to iCloud Drive, then tap the file to open in Mela
+- **iPhone / iPad**: AirDrop or save to iPhone, then tap the file to open in Mela
 
 ## Notes
 
