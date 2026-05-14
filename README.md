@@ -8,7 +8,7 @@ Generates a `.melarecipes` file you can open directly in Mela to import all your
 
 - Python 3.10+
 - A NYT Cooking subscription
-- [Mela](https://apps.apple.com/app/mela-recipe-manager/id1548466041) installed on your device
+- [Mela](https://apps.apple.com/app/mela-recipe-manager/id1548466041) on any Apple device to import the resulting file
 
 ## Installation
 
@@ -20,19 +20,9 @@ pip install -r requirements.txt
 
 ## Getting your credentials
 
-You need two values from your browser's cookie storage.
-
-### Firefox
 1. Log in to [cooking.nytimes.com](https://cooking.nytimes.com)
 2. Open DevTools: `F12` or `Cmd+Option+I`
-3. Go to **Storage** tab → **Cookies** → `https://cooking.nytimes.com`
-4. Copy the **Value** of the `NYT-S` cookie
-5. Copy the **Value** of the `nyt-jkidd` cookie
-
-### Chrome / Edge
-1. Log in to [cooking.nytimes.com](https://cooking.nytimes.com)
-2. Open DevTools: `F12` or `Cmd+Option+I`
-3. Go to **Application** tab → **Cookies** → `https://cooking.nytimes.com`
+3. Go to the **Storage** tab (Firefox) or **Application** tab (Chrome/Edge) → **Cookies** → `https://cooking.nytimes.com`
 4. Copy the **Value** of the `NYT-S` cookie
 5. Copy the **Value** of the `nyt-jkidd` cookie
 
@@ -86,4 +76,4 @@ Open this file in Mela to import your recipes.
 
 - Your cookies are only used to authenticate with NYT Cooking — they are never stored or sent anywhere else.
 - Cookies expire periodically. If you get an authentication error, grab fresh values from your browser.
-- Running with images (~165 recipes) produces a ~240MB file and takes a couple of minutes. Use `--no-images` if you just want a quick export.
+- Running with images (~165 recipes) produces a ~240MB file and takes a couple of minutes. Without images the same 165 recipes come in under 250KB. Use `--no-images` if you just want a quick export.
