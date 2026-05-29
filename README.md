@@ -55,7 +55,7 @@ python3 nyt_to_mela.py
 ### Example
 
 ```
-Detected user ID from nyt-jkidd: 93592072
+Detected user ID from nyt-jkidd: 12345678
 Fetching saved recipes...
 Found 165 saved recipe(s). Scraping...
 [1/165] Golden Diner's Tuna Melt ✓
