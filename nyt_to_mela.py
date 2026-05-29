@@ -15,6 +15,26 @@ import requests
 from recipe_scrapers import scrape_html
 
 BASE_URL = "https://cooking.nytimes.com"
+
+NUTRITION_LABELS = {
+    "calories": "Calories",
+    "fatContent": "Fat",
+    "saturatedFatContent": "Saturated fat",
+    "unsaturatedFatContent": "Unsaturated fat",
+    "transFatContent": "Trans fat",
+    "cholesterolContent": "Cholesterol",
+    "sodiumContent": "Sodium",
+    "carbohydrateContent": "Carbohydrates",
+    "fiberContent": "Fiber",
+    "sugarContent": "Sugar",
+    "proteinContent": "Protein",
+}
+
+NUTRITION_ORDER = [
+    "calories", "fatContent", "saturatedFatContent", "unsaturatedFatContent",
+    "transFatContent", "cholesterolContent", "sodiumContent",
+    "carbohydrateContent", "fiberContent", "sugarContent", "proteinContent",
+]
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -115,15 +135,15 @@ def download_image_b64(session: requests.Session, url: str) -> str | None:
         return None
 
 
-def minutes_to_iso8601(minutes: int | None) -> str:
+def minutes_to_mela_time(minutes: int | None) -> str:
     if not minutes:
         return ""
     hours, mins = divmod(int(minutes), 60)
     if hours and mins:
-        return f"PT{hours}H{mins}M"
+        return f"{hours}h {mins}min"
     if hours:
-        return f"PT{hours}H"
-    return f"PT{mins}M"
+        return f"{hours}h"
+    return f"{mins}min"
 
 
 def to_mela_recipe(scraper, url: str, session: requests.Session, include_images: bool) -> dict:
@@ -155,12 +175,19 @@ def to_mela_recipe(scraper, url: str, session: requests.Session, include_images:
     categories_raw = safe(scraper.category)
     categories = [c.strip() for c in categories_raw.split(",") if c.strip()]
 
-    # Nutrition: recipe-scrapers returns a dict
     nutrition_str = ""
     try:
         nutrients = scraper.nutrients()
         if nutrients:
-            nutrition_str = "\n".join(f"{k}: {v}" for k, v in nutrients.items())
+            lines = []
+            for key in NUTRITION_ORDER:
+                if key in nutrients:
+                    label = NUTRITION_LABELS[key]
+                    lines.append(f"**{label}** {nutrients[key]}")
+            for key, value in nutrients.items():
+                if key not in NUTRITION_LABELS:
+                    lines.append(f"**{key}** {value}")
+            nutrition_str = "\n".join(lines)
     except Exception:
         pass
 
@@ -171,9 +198,9 @@ def to_mela_recipe(scraper, url: str, session: requests.Session, include_images:
         "images": images,
         "categories": categories,
         "yield": safe(scraper.yields),
-        "prepTime": minutes_to_iso8601(safe(scraper.prep_time) or None),
-        "cookTime": minutes_to_iso8601(safe(scraper.cook_time) or None),
-        "totalTime": minutes_to_iso8601(safe(scraper.total_time) or None),
+        "prepTime": minutes_to_mela_time(safe(scraper.prep_time) or None),
+        "cookTime": minutes_to_mela_time(safe(scraper.cook_time) or None),
+        "totalTime": minutes_to_mela_time(safe(scraper.total_time) or None),
         "ingredients": ingredients,
         "instructions": instructions,
         "notes": "",
