@@ -13,7 +13,7 @@ Generates a `.melarecipes` file you can open directly in Mela to import all your
 ## Installation
 
 ```bash
-git clone https://github.com/conor/nyt-to-mela.git
+git clone https://github.com/conorlmcbride/nyt-to-mela.git
 cd nyt-to-mela
 pip install -r requirements.txt
 ```
