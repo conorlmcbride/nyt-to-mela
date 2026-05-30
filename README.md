@@ -32,7 +32,7 @@ pip install -r requirements.txt
 python3 nyt_to_mela.py --cookie "<NYT-S value>" --jkidd "<nyt-jkidd value>"
 ```
 
-This exports all your saved recipes (with photos) to `recipes.melarecipes` in the current directory.
+This exports all your saved recipes (with photos) to `recipes.melarecipes` in the current directory. Open this file with mela on macOS or send to an iOS device to import.
 
 ### Options
 
