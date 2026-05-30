@@ -35,6 +35,25 @@ NUTRITION_ORDER = [
     "transFatContent", "cholesterolContent", "sodiumContent",
     "carbohydrateContent", "fiberContent", "sugarContent", "proteinContent",
 ]
+
+NYT_NUTRIENT_LABELS = {
+    "calories": "Calories",
+    "fat": "Fat",
+    "saturated fat": "Saturated fat",
+    "unsaturated fat": "Unsaturated fat",
+    "monounsaturated fat": "Monounsaturated fat",
+    "polyunsaturated fat": "Polyunsaturated fat",
+    "trans fat": "Trans fat",
+    "cholesterol": "Cholesterol",
+    "sodium": "Sodium",
+    "carbohydrates": "Carbohydrates",
+    "dietary fiber": "Fiber",
+    "fiber": "Fiber",
+    "sugars": "Sugar",
+    "sugar": "Sugar",
+    "protein": "Protein",
+}
+
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -135,6 +154,146 @@ def download_image_b64(session: requests.Session, url: str) -> str | None:
         return None
 
 
+def extract_instructions_from_ld(html: str) -> str:
+    """Parse recipeInstructions from JSON-LD, handling NYT's non-standard structures.
+
+    NYT uses HowToSection wrappers and sometimes a bare object instead of an
+    array, both of which recipe-scrapers mishandles.
+    """
+    ld_blocks = re.findall(
+        r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL
+    )
+    for block in ld_blocks:
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue
+        if data.get("@type") != "Recipe":
+            continue
+        raw = data.get("recipeInstructions")
+        if not raw:
+            continue
+
+        def extract_steps(node):
+            if isinstance(node, str):
+                return [node] if node else []
+            if isinstance(node, dict):
+                typ = node.get("@type", "")
+                if typ == "HowToStep":
+                    return [node["text"]] if node.get("text") else []
+                if typ == "HowToSection":
+                    items = node.get("itemListElement", [])
+                    return extract_steps(items)
+                if node.get("text"):
+                    return [node["text"]]
+            if isinstance(node, list):
+                steps = []
+                for item in node:
+                    steps.extend(extract_steps(item))
+                return steps
+            return []
+
+        steps = extract_steps(raw)
+        if steps:
+            return "\n".join(steps)
+    return ""
+
+
+def extract_nyt_next_data(html: str) -> dict:
+    """Pull recipe times and nutrition from NYT's embedded __NEXT_DATA__ JSON.
+
+    NYT moved times and nutrition out of their JSON-LD into a Next.js data
+    blob, so recipe-scrapers can no longer find them for newer recipes.
+    """
+    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        data = json.loads(match.group(1))
+    except Exception:
+        return {}
+
+    def find_recipe_node(obj, depth=0):
+        if depth > 15 or not isinstance(obj, (dict, list)):
+            return None
+        if isinstance(obj, dict):
+            if isinstance(obj.get("prepTime"), dict) and "minutes" in obj["prepTime"]:
+                return obj
+            if isinstance(obj.get("cookTime"), dict) and "minutes" in obj.get("cookTime", {}):
+                return obj
+            for v in obj.values():
+                result = find_recipe_node(v, depth + 1)
+                if result:
+                    return result
+        else:
+            for v in obj:
+                result = find_recipe_node(v, depth + 1)
+                if result:
+                    return result
+        return None
+
+    node = find_recipe_node(data)
+    if not node:
+        return {}
+
+    def get_minutes(field):
+        val = node.get(field)
+        if isinstance(val, dict):
+            return val.get("minutes")
+        return None
+
+    return {
+        "prep_minutes": get_minutes("prepTime"),
+        "cook_minutes": get_minutes("cookTime"),
+        "total_minutes": get_minutes("totalTime"),
+        "nutritional_info": node.get("nutritionalInfo"),
+    }
+
+
+def parse_nyt_nutrition_description(description: str) -> str:
+    """Parse NYT API nutrition description into bold Mela markdown.
+
+    Description format: "642 calories; 54 grams fat; 1 gram dietary fiber; ..."
+    """
+    lines = []
+    pattern = re.compile(
+        r'^([\d.]+)\s+(?:(grams?|milligrams?|micrograms?)\s+)?(.+)$',
+        re.IGNORECASE,
+    )
+    for part in description.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        m = pattern.match(part)
+        if not m:
+            continue
+        amount, unit, nutrient = m.group(1), (m.group(2) or "").strip(), m.group(3).strip().lower()
+        label = NYT_NUTRIENT_LABELS.get(nutrient, nutrient.capitalize())
+        value = f"{amount} {unit}".strip() if unit else amount
+        lines.append(f"**{label}** {value}")
+    return "\n".join(lines)
+
+
+def fetch_nyt_nutrition(session: requests.Session, url: str) -> str:
+    """Fetch nutrition from the NYT Cooking API for a recipe URL."""
+    m = re.search(r'/recipes/(\d+)', url)
+    if not m:
+        return ""
+    try:
+        resp = session.get(
+            f"{BASE_URL}/api/v2/recipes/{m.group(1)}",
+            headers={"x-cooking-api": "cooking-frontend", "Accept": "application/json"},
+            timeout=15,
+        )
+        if not resp.ok:
+            return ""
+        items = resp.json().get("nutritional_information") or []
+        description = items[0].get("description", "") if items else ""
+        return parse_nyt_nutrition_description(description)
+    except Exception:
+        return ""
+
+
 def minutes_to_mela_time(minutes: int | None) -> str:
     if not minutes:
         return ""
@@ -146,7 +305,7 @@ def minutes_to_mela_time(minutes: int | None) -> str:
     return f"{mins}min"
 
 
-def to_mela_recipe(scraper, url: str, session: requests.Session, include_images: bool) -> dict:
+def to_mela_recipe(scraper, url: str, session: requests.Session, include_images: bool, html: str = "") -> dict:
     images = []
     if include_images:
         try:
@@ -166,14 +325,25 @@ def to_mela_recipe(scraper, url: str, session: requests.Session, include_images:
 
     def safe_list(fn):
         try:
-            return fn() or []
+            result = fn() or []
+            return [s for s in result if s and s != "None"]
         except Exception:
             return []
 
+    _schema_junk = frozenset({"@type", "text", "url", "name", "@context"})
+
     ingredients = "\n".join(safe_list(scraper.ingredients))
     instructions = "\n".join(safe_list(scraper.instructions_list))
+    if not instructions or any(l.strip() in _schema_junk for l in instructions.splitlines()):
+        instructions = extract_instructions_from_ld(html) or instructions
     categories_raw = safe(scraper.category)
     categories = [c.strip() for c in categories_raw.split(",") if c.strip()]
+
+    nyt = extract_nyt_next_data(html)
+
+    prep_min = safe(scraper.prep_time) or nyt.get("prep_minutes")
+    cook_min = safe(scraper.cook_time) or nyt.get("cook_minutes")
+    total_min = safe(scraper.total_time) or nyt.get("total_minutes")
 
     nutrition_str = ""
     try:
@@ -191,6 +361,9 @@ def to_mela_recipe(scraper, url: str, session: requests.Session, include_images:
     except Exception:
         pass
 
+    if not nutrition_str:
+        nutrition_str = fetch_nyt_nutrition(session, url)
+
     return {
         "id": re.sub(r"^https?://", "", url),
         "title": safe(scraper.title),
@@ -198,9 +371,9 @@ def to_mela_recipe(scraper, url: str, session: requests.Session, include_images:
         "images": images,
         "categories": categories,
         "yield": safe(scraper.yields),
-        "prepTime": minutes_to_mela_time(safe(scraper.prep_time) or None),
-        "cookTime": minutes_to_mela_time(safe(scraper.cook_time) or None),
-        "totalTime": minutes_to_mela_time(safe(scraper.total_time) or None),
+        "prepTime": minutes_to_mela_time(prep_min or None),
+        "cookTime": minutes_to_mela_time(cook_min or None),
+        "totalTime": minutes_to_mela_time(total_min or None),
         "ingredients": ingredients,
         "instructions": instructions,
         "notes": "",
@@ -276,7 +449,7 @@ def main() -> None:
             resp = session.get(url, timeout=30)
             resp.raise_for_status()
             scraper = scrape_html(resp.text, org_url=url)
-            mela = to_mela_recipe(scraper, url, session, include_images=not args.no_images)
+            mela = to_mela_recipe(scraper, url, session, include_images=not args.no_images, html=resp.text)
             mela_recipes.append(mela)
             print(" ✓")
         except Exception as e:
